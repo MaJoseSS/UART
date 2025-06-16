@@ -32,7 +32,7 @@ pinout:
   uo[7]: ""         # Unused
 
   # Bidirectional pins
-  uio[0]: "DATA0"   # Data bit 0
+  uio[0]: "DATA0"   # Data bit 0 (input only)
   uio[1]: "DATA1"   # Data bit 1
   uio[2]: "DATA2"   # Data bit 2
   uio[3]: "DATA3"   # Data bit 3
