@@ -1,3 +1,4 @@
+pip install cocotb cocotb-bus
 import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import RisingEdge, FallingEdge, Timer
