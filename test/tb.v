@@ -1,6 +1,6 @@
 `timescale 1ns / 1ps
 
-module tb_tt_um_uart();
+module tb();
 
 reg clk;
 reg rst_n;
