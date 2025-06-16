@@ -33,8 +33,8 @@ assign uo_out[2] = rx_ready;  // Data ready pulse
 assign uo_out[3] = rx_error;  // Error indicator
 assign uo_out[7:4] = 4'b0;    // Unused outputs
 
-assign uio_out = rx_data;     // Received data output
-assign uio_oe = 8'h00;        // Always input mode (fixes GDS issue)
+assign uio_out = 8'b0;        // Not used - fix GDS issue
+assign uio_oe = 8'h00;        // Always input mode
 
 // ================================================
 // UART Core Implementation
@@ -62,12 +62,12 @@ module uart_core (
     input [4:0] ctrl_word,
     input [7:0] tx_data,
     input tx_start,
-    output reg tx_busy,
-    output reg tx_out,
+    output tx_busy,
+    output tx_out,
     input rx_in,
-    output reg [7:0] rx_data,
-    output reg rx_ready,
-    output reg rx_error,
+    output [7:0] rx_data,
+    output rx_ready,
+    output rx_error,
     input baud16_en
 );
 
@@ -92,6 +92,8 @@ reg [2:0] tx_bit_count;
 reg [7:0] tx_shift_reg;
 reg tx_parity_bit;
 reg [4:0] tx_stop_duration;
+reg tx_out_reg;
+reg tx_busy_reg;
 
 // Registros del receptor
 reg [2:0] rx_state;
@@ -102,21 +104,30 @@ reg rx_in_prev;
 reg frame_error;
 reg parity_error;
 reg [7:0] rx_data_reg;
+reg rx_ready_reg;
+reg rx_error_reg;
+
+// Asignaciones de salida
+assign tx_busy = tx_busy_reg;
+assign tx_out = tx_out_reg;
+assign rx_data = rx_data_reg;
+assign rx_ready = rx_ready_reg;
+assign rx_error = rx_error_reg;
 
 // Lógica del transmisor
 always @(posedge clk or posedge rst) begin
     if (rst) begin
         tx_state <= TX_IDLE;
-        tx_out <= 1'b1;
+        tx_out_reg <= 1'b1;
         tx_cycle_count <= 0;
         tx_bit_count <= 0;
-        tx_busy <= 0;
+        tx_busy_reg <= 0;
     end else begin
-        tx_busy <= (tx_state != TX_IDLE); // Actualizar tx_busy
+        tx_busy_reg <= (tx_state != TX_IDLE);
         
         case (tx_state)
             TX_IDLE: begin
-                tx_out <= 1'b1;
+                tx_out_reg <= 1'b1;
                 if (tx_start) begin
                     tx_stop_duration <= (ctrl_word[4]) ? 
                         ((ctrl_word[1:0] == 2'b11) ? 24 : 32) : 16;
@@ -135,7 +146,7 @@ always @(posedge clk or posedge rst) begin
             end
             
             TX_START: begin
-                tx_out <= 1'b0;
+                tx_out_reg <= 1'b0;
                 if (baud16_en) begin
                     if (tx_cycle_count < 15)
                         tx_cycle_count <= tx_cycle_count + 1;
@@ -148,7 +159,7 @@ always @(posedge clk or posedge rst) begin
             end
             
             TX_DATA: begin
-                tx_out <= tx_shift_reg[0];
+                tx_out_reg <= tx_shift_reg[0];
                 if (baud16_en) begin
                     if (tx_cycle_count < 15) begin
                         tx_cycle_count <= tx_cycle_count + 1;
@@ -168,7 +179,7 @@ always @(posedge clk or posedge rst) begin
             end
             
             TX_PARITY: begin
-                tx_out <= tx_parity_bit;
+                tx_out_reg <= tx_parity_bit;
                 if (baud16_en) begin
                     if (tx_cycle_count < 15)
                         tx_cycle_count <= tx_cycle_count + 1;
@@ -180,7 +191,7 @@ always @(posedge clk or posedge rst) begin
             end
             
             TX_STOP: begin
-                tx_out <= 1'b1;
+                tx_out_reg <= 1'b1;
                 if (baud16_en) begin
                     if (tx_cycle_count < tx_stop_duration - 1)
                         tx_cycle_count <= tx_cycle_count + 1;
@@ -198,18 +209,17 @@ end
 always @(posedge clk or posedge rst) begin
     if (rst) begin
         rx_state <= RX_IDLE;
-        rx_ready <= 0;
+        rx_ready_reg <= 0;
         rx_cycle_count <= 0;
         rx_bit_count <= 0;
         rx_in_prev <= 1'b1;
         frame_error <= 0;
         parity_error <= 0;
-        rx_error <= 0;
-        rx_data <= 0;
+        rx_error_reg <= 0;
+        rx_data_reg <= 0;
     end else begin
-        rx_ready <= 0;  // Reset data ready pulse
-        rx_error <= 0;   // Reset error flag
-        
+        rx_ready_reg <= 0;
+        rx_error_reg <= 0;
         rx_in_prev <= rx_in;
         
         case (rx_state)
@@ -289,9 +299,9 @@ always @(posedge clk or posedge rst) begin
                     end
                     
                     if (rx_cycle_count == 15) begin
-                        rx_data <= rx_shift_reg;
-                        rx_ready <= 1'b1;
-                        rx_error <= frame_error | parity_error;
+                        rx_data_reg <= rx_shift_reg;
+                        rx_ready_reg <= 1'b1;
+                        rx_error_reg <= frame_error | parity_error;
                         rx_state <= RX_IDLE;
                         frame_error <= 0;
                         parity_error <= 0;
