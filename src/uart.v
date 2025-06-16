@@ -1,26 +1,42 @@
-
-
-module uart (
-    input clk,             // Reloj del sistema
-    input rst,             // Reset activo en alto
-    // Configuración
-    input [4:0] ctrl_word, // {NSB, NPB, POE, NDB2, NDB1}
-    // Interfaz de transmisión
-    input [7:0] tx_data,   // Datos a transmitir
-    input tx_start,        // Iniciar transmisión (activo alto)
-    output tx_busy,        // Transmisor ocupado
-    output tx_out,         // Salida serie
-    // Interfaz de recepción
-    input rx_in,           // Entrada serie
-    output [7:0] rx_data,  // Datos recibidos
-    output rx_ready,       // Dato recibido disponible (pulso)
-    output rx_error,       // Error (paridad/trama)
-    // Control de baud rate
-    input baud16_en        // Enable 16x baud rate (pulso)
+module tt_um_uart (
+    input  wire [7:0] ui_in,     // Dedicated inputs
+    output wire [7:0] uo_out,    // Dedicated outputs
+    input  wire [7:0] uio_in,    // IOs: Input path
+    output wire [7:0] uio_out,   // IOs: Output path
+    output wire [7:0] uio_oe,    // IOs: Enable path (active high: 0=input, 1=output)
+    input  wire       ena,       // Enable (ignorado)
+    input  wire       clk,       // Reloj
+    input  wire       rst_n      // Reset activo en bajo
 );
 
 // ================================================
-// Parámetros y registros internos
+// Mapeo de señales y conversión de reset
+// ================================================
+wire rst = ~rst_n;  // Convertir reset activo en bajo a activo en alto
+wire rx_in = ui_in[0];
+wire tx_start = ui_in[1];
+wire [4:0] ctrl_word = ui_in[6:2];
+wire [7:0] tx_data = uio_in;
+
+// Señales internas
+wire tx_out;
+wire tx_busy;
+wire [7:0] rx_data;
+wire rx_ready;
+wire rx_error;
+
+// Asignación de salidas
+assign uo_out[0] = tx_out;
+assign uo_out[1] = tx_busy;
+assign uo_out[2] = rx_ready;
+assign uo_out[3] = rx_error;
+assign uo_out[7:4] = 4'b0;  // Bits no utilizados
+
+assign uio_out = rx_data;    // Datos recibidos
+assign uio_oe = (rx_ready) ? 8'hFF : 8'h00;  // Habilitar salida solo cuando hay dato válido
+
+// ================================================
+// Parámetros y registros internos (igual que original)
 // ================================================
 // Estados del transmisor
 localparam TX_IDLE     = 0;
@@ -57,7 +73,7 @@ reg [7:0] rx_data_reg;
 reg rx_ready_reg;
 
 // ================================================
-// Lógica del transmisor
+// Lógica del transmisor (igual que original)
 // ================================================
 always @(posedge clk or posedge rst) begin
     if (rst) begin
@@ -153,7 +169,7 @@ assign tx_busy = (tx_state != TX_IDLE);
 assign tx_out = tx_out_reg;
 
 // ================================================
-// Lógica del receptor
+// Lógica del receptor (igual que original)
 // ================================================
 always @(posedge clk or posedge rst) begin
     if (rst) begin
