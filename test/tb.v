@@ -21,7 +21,7 @@ module tb ();
   wire [7:0] uio_oe;
 
   // Instantiate the UART module
-  tt_um_uart user_project (
+  tt_um_uart tt_um_uart (
       .ui_in  (ui_in),
       .uo_out (uo_out),
       .uio_in (uio_in),
@@ -35,16 +35,17 @@ module tb ();
   // Clock generation (100 MHz)
   always #5 clk = ~clk;
 
-  // Baud rate generator (115200 baud)
-  reg baud16_en = 0;
-  real BAUD_RATE = 115200;
-  real CLOCK_FREQ = 100_000_000; // 100 MHz
-  real BAUD16_PERIOD = (1/(BAUD_RATE*16))*1e9;
+  // Baud rate configuration
+  parameter CLOCK_FREQ = 100_000_000;  // 100 MHz
+  parameter BAUD_RATE = 115_200;
+  localparam BAUD16_PERIOD = (1_000_000_000.0 / (BAUD_RATE * 16)); // ns
+  localparam BIT_PERIOD = (1_000_000_000.0 / BAUD_RATE); // ns
   integer baud_counter = 0;
-  integer baud_interval = CLOCK_FREQ/(BAUD_RATE*16);
+  reg baud16_en = 0;
   
+  // Baud enable generator
   always @(posedge clk) begin
-    if (baud_counter >= baud_interval - 1) begin
+    if (baud_counter >= (CLOCK_FREQ / (BAUD_RATE * 16)) - 1) begin
       baud_counter <= 0;
       baud16_en <= 1;
     end else begin
@@ -55,7 +56,7 @@ module tb ();
 
   // Test procedure
   initial begin
-    // Initial reset
+    // Initialize
     rst_n = 0;
     ui_in = 0;
     uio_in = 0;
@@ -65,103 +66,103 @@ module tb ();
     rst_n = 1;
     #100;
     
-    // Configure UART for 8N1: 
-    // [stop=0 (1-bit), parity_disabled=1, parity_type=0, data_bits=11 (8-bits)]
-    ui_in[7:3] = 5'b01011;
-    
-    // Connect baud16_en
-    ui_in[2] = baud16_en;
+    // Configure UART for 8N1
+    ui_in[7:3] = 5'b01011;  // stop=0 (1-bit), parity_disabled=1, data_bits=8 (11)
+    ui_in[2] = baud16_en;   // Connect baud enable
     
     // Test 1: Basic transmission
-    $display("Test 1: Basic transmission");
-    uio_in = 8'hA5;       // Data to transmit
-    ui_in[1] = 1'b1;      // Activate tx_start
+    $display("[TEST 1] Basic transmission");
+    uio_in = 8'hA5;
+    ui_in[1] = 1'b1;  // Activate tx_start
     #10;
-    ui_in[1] = 1'b0;      // Deactivate tx_start
+    ui_in[1] = 1'b0;  // Deactivate tx_start
+    
+    // Wait for transmission to start
+    wait (uo_out[1] == 1'b1);
+    $display("  Transmission started");
     
     // Wait for transmission to complete
-    while (uo_out[1] == 1'b1) #10;
-    $display("Transmission complete");
+    wait (uo_out[1] == 1'b0);
+    $display("  Transmission complete");
     
-    // Test 2: Reception
-    $display("\nTest 2: Reception");
+    // Test 2: Basic reception
+    $display("\n[TEST 2] Basic reception");
     fork
       begin
         // Send byte 0x5A serially
         // Start bit
         ui_in[0] = 1'b0;
-        #(BAUD16_PERIOD*16);
+        #(BIT_PERIOD);
         
         // Data bits (LSB first)
         ui_in[0] = 1'b0; // bit0
-        #(BAUD16_PERIOD*16);
+        #(BIT_PERIOD);
         ui_in[0] = 1'b1; // bit1
-        #(BAUD16_PERIOD*16);
+        #(BIT_PERIOD);
         ui_in[0] = 1'b0; // bit2
-        #(BAUD16_PERIOD*16);
+        #(BIT_PERIOD);
         ui_in[0] = 1'b1; // bit3
-        #(BAUD16_PERIOD*16);
+        #(BIT_PERIOD);
         ui_in[0] = 1'b1; // bit4
-        #(BAUD16_PERIOD*16);
+        #(BIT_PERIOD);
         ui_in[0] = 1'b0; // bit5
-        #(BAUD16_PERIOD*16);
+        #(BIT_PERIOD);
         ui_in[0] = 1'b1; // bit6
-        #(BAUD16_PERIOD*16);
+        #(BIT_PERIOD);
         ui_in[0] = 1'b0; // bit7
-        #(BAUD16_PERIOD*16);
+        #(BIT_PERIOD);
         
         // Stop bit
         ui_in[0] = 1'b1;
-        #(BAUD16_PERIOD*32);
+        #(BIT_PERIOD * 2);
       end
     join_none
     
     // Wait for reception to complete
-    while (uo_out[2] == 1'b0) #10;
-    if (user_project.uart_inst.rx_data == 8'h5A) 
-      $display("Reception successful: 0x%h", user_project.uart_inst.rx_data);
+    wait (uo_out[2] == 1'b1);
+    if (tt_um_uart.uart_inst.rx_data == 8'h5A) 
+      $display("  Reception successful: 0x%h", tt_um_uart.uart_inst.rx_data);
     else
-      $display("ERROR: Received 0x%h, expected 0x5A", user_project.uart_inst.rx_data);
+      $display("  ERROR: Received 0x%h, expected 0x5A", tt_um_uart.uart_inst.rx_data);
     
     // Test 3: Parity error detection
-    $display("\nTest 3: Parity error detection");
-    // Configure for parity checking: 
-    // [stop=0, parity_disabled=0 (enabled), parity_type=1 (even), data_bits=11 (8-bits)]
-    ui_in[7:3] = 5'b00111;
+    $display("\n[TEST 3] Parity error detection");
+    // Configure for parity checking
+    ui_in[7:3] = 5'b00111;  // stop=0, parity_disabled=0, parity_type=1 (even), data_bits=8 (11)
     
     fork
       begin
-        // Send byte with incorrect parity
+        // Send byte with incorrect parity (0xAA should have parity=1 for even)
         // Start bit
         ui_in[0] = 1'b0;
-        #(BAUD16_PERIOD*16);
+        #(BIT_PERIOD);
         
-        // Data bits (0xAA = 10101010 - even parity should be 1, but we send 0)
+        // Data bits (0xAA = 10101010)
         for (integer i = 0; i < 8; i = i + 1) begin
-          ui_in[0] = 1'b0; // All bits 0 (parity should be 1 for even)
-          #(BAUD16_PERIOD*16);
+          ui_in[0] = 1'b0; // All bits 0 (parity should be 1)
+          #(BIT_PERIOD);
         end
         
         // Incorrect parity bit (0 instead of 1)
         ui_in[0] = 1'b0;
-        #(BAUD16_PERIOD*16);
+        #(BIT_PERIOD);
         
         // Stop bit
         ui_in[0] = 1'b1;
-        #(BAUD16_PERIOD*32);
+        #(BIT_PERIOD * 2);
       end
     join_none
     
     // Wait for reception to complete
-    while (uo_out[2] == 1'b0) #10;
+    wait (uo_out[2] == 1'b1);
     if (uo_out[3] == 1'b1) 
-      $display("Parity error detected successfully");
+      $display("  Parity error detected successfully");
     else
-      $display("ERROR: Parity error not detected");
+      $display("  ERROR: Parity error not detected");
     
     // Test 4: Frame error detection
-    $display("\nTest 4: Frame error detection");
-    // Configure for no parity: 
+    $display("\n[TEST 4] Frame error detection");
+    // Configure for no parity
     ui_in[7:3] = 5'b01011;
     
     fork
@@ -169,58 +170,92 @@ module tb ();
         // Send byte with short stop bit
         // Start bit
         ui_in[0] = 1'b0;
-        #(BAUD16_PERIOD*16);
+        #(BIT_PERIOD);
         
         // Data bits (0x55)
         for (integer i = 0; i < 8; i = i + 1) begin
           ui_in[0] = ~(i % 2); // 01010101
-          #(BAUD16_PERIOD*16);
+          #(BIT_PERIOD);
         end
         
-        // Short stop bit (only 8 baud cycles instead of 16)
+        // Short stop bit (only half period)
         ui_in[0] = 1'b1;
-        #(BAUD16_PERIOD*8);
+        #(BIT_PERIOD / 2);
         
         // Next start bit (violates stop bit timing)
         ui_in[0] = 1'b0;
-        #(BAUD16_PERIOD*16);
+        #(BIT_PERIOD);
       end
     join_none
     
     // Wait for reception to complete
-    while (uo_out[2] == 1'b0) #10;
+    wait (uo_out[2] == 1'b1);
     if (uo_out[3] == 1'b1) 
-      $display("Frame error detected successfully");
+      $display("  Frame error detected successfully");
     else
-      $display("ERROR: Frame error not detected");
+      $display("  ERROR: Frame error not detected");
     
     // Test 5: Busy signal during transmission
-    $display("\nTest 5: Busy signal check");
+    $display("\n[TEST 5] Busy signal check");
     uio_in = 8'hFF;
     ui_in[1] = 1'b1;
     #10;
     ui_in[1] = 1'b0;
     
     if (uo_out[1] === 1'b1)
-      $display("Busy signal active during transmission");
+      $display("  Busy signal active during transmission");
     else
-      $display("ERROR: Busy signal not active");
+      $display("  ERROR: Busy signal not active");
     
     // Wait for transmission to complete
-    while (uo_out[1] == 1'b1) #10;
-    $display("Busy signal deactivated after transmission");
+    wait (uo_out[1] == 1'b0);
+    $display("  Busy signal deactivated after transmission");
+    
+    // Test 6: Different data lengths
+    $display("\n[TEST 6] Data length variations");
+    test_data_length(5'b01000, 5); // 5 bits
+    test_data_length(5'b01001, 6); // 6 bits
+    test_data_length(5'b01010, 7); // 7 bits
+    test_data_length(5'b01011, 8); // 8 bits
     
     $display("\nAll tests completed");
     #100;
     $finish;
   end
 
+  // Task to test different data lengths
+  task test_data_length(input [4:0] config_val, input integer num_bits);
+    $display("  Testing %0d-bit data transmission", num_bits);
+    
+    // Configure data length
+    ui_in[7:3] = config_val;
+    
+    // Generate test data (only relevant bits)
+    reg [7:0] test_data = (1 << num_bits) - 1; // All 1s for the relevant bits
+    
+    // Transmit
+    uio_in = test_data;
+    ui_in[1] = 1'b1;
+    #10;
+    ui_in[1] = 1'b0;
+    
+    // Wait for transmission to complete
+    wait (uo_out[1] == 1'b0);
+    $display("  %0d-bit transmission complete", num_bits);
+  endtask
+
   // Monitor
   always @(posedge clk) begin
-    $display("T=%0t: TX=%b, Busy=%b, RX_ready=%b, Error=%b, State_TX=%0d, State_RX=%0d",
-      $time, uo_out[0], uo_out[1], uo_out[2], uo_out[3],
-      user_project.uart_inst.tx_state,
-      user_project.uart_inst.rx_state);
+    if ($time > 0) begin
+      $display("T=%8tns: TX=%b, Busy=%b, RX_ready=%b, Error=%b, TX_state=%0d, RX_state=%0d",
+        $time, 
+        uo_out[0], 
+        uo_out[1], 
+        uo_out[2], 
+        uo_out[3],
+        tt_um_uart.uart_inst.tx_state,
+        tt_um_uart.uart_inst.rx_state);
+    end
   end
 
 endmodule
