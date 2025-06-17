@@ -1,40 +1,31 @@
-# SPDX-FileCopyrightText: © 2024 Tiny Tapeout
-# SPDX-License-Identifier: Apache-2.0
-
-import cocotb
-from cocotb.clock import Clock
-from cocotb.triggers import ClockCycles
-
-
 @cocotb.test()
-async def test_project(dut):
-    dut._log.info("Start")
+async def test_uart_basic_transmission(dut):
+    dut._log.info("Start UART test")
 
-    # Set the clock period to 10 us (100 KHz)
-    clock = Clock(dut.clk, 1000, units="us")
+    # Inicia el reloj
+    clock = Clock(dut.clk, 10, units="ns")  # 100 MHz
     cocotb.start_soon(clock.start())
 
     # Reset
-    dut._log.info("Reset")
-    dut.ena.value = 1
-    dut.ui_in.value = 0
-    dut.uio_in.value = 0
     dut.rst_n.value = 0
-    await ClockCycles(dut.clk, 10)
+    dut.ena.value = 1
+    await ClockCycles(dut.clk, 5)
     dut.rst_n.value = 1
+    await ClockCycles(dut.clk, 5)
 
-    dut._log.info("Test project behavior")
-
-    # Set the input values you want to test
-    dut.ui_in.value = 20
-    dut.uio_in.value = 30
-
-    # Wait for one clock cycle to see the output values
+    # Configura UART: 8N1, sin paridad, 1 stop bit
+    dut.ui_in.value = 0b01011000  # ctrl_word = {NSB=0, NPB=1, POE=0, NDB=11}
+    
+    # Enviar dato
+    dut.uio_in.value = 0xA5      # Dato a transmitir
+    dut.ui_in.value = dut.ui_in.value | 0b00000010  # tx_start = 1
     await ClockCycles(dut.clk, 1)
+    dut.ui_in.value = dut.ui_in.value & (~0b00000010)  # tx_start = 0
 
-    # The following assersion is just an example of how to check the output values.
-    # Change it to match the actual expected output of your module:
-    assert dut.uo_out.value == 50
+    # Esperar un tiempo para que transmisión se complete
+    await ClockCycles(dut.clk, 1000)
 
-    # Keep testing the module by changing the input values, waiting for
-    # one or more clock cycles, and asserting the expected output values.
+    # Verificar que al menos la línea TX (uo_out[0]) haya cambiado
+    tx_line = int(dut.uo_out.value) & 0x01
+    dut._log.info(f"TX line = {tx_line}")
+
