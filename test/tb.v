@@ -44,12 +44,28 @@ module tb ();
   
   // Baud enable generator
   always @(posedge clk) begin
-    if (baud_counter >= (CLOCK_FREQ / (BAUD_RATE * 16)) - 1) begin
+    if (!rst_n) begin
+      baud_counter <= 0;
+      baud16_en <= 0;
+    end else if (baud_counter >= (CLOCK_FREQ / (BAUD_RATE * 16)) - 1) begin
       baud_counter <= 0;
       baud16_en <= 1;
     end else begin
       baud_counter <= baud_counter + 1;
       baud16_en <= 0;
+    end
+  end
+
+  // Variables for debugging (si necesitas acceso a señales internas)
+  reg [7:0] received_data;
+  reg rx_ready_prev = 0;
+
+  // Capturar datos recibidos cuando rx_ready se activa
+  always @(posedge clk) begin
+    rx_ready_prev <= uo_out[2];
+    if (uo_out[2] && !rx_ready_prev) begin
+      // rx_ready just went high, capture the data
+      received_data <= uio_out; // Asumiendo que los datos están en uio_out
     end
   end
 
@@ -73,7 +89,7 @@ module tb ();
     $display("[TEST 1] Basic transmission");
     uio_in = 8'hA5;
     ui_in[1] = 1'b1;  // Activate tx_start
-    #10;
+    #20;
     ui_in[1] = 1'b0;  // Deactivate tx_start
     
     // Wait for transmission to start
@@ -93,7 +109,7 @@ module tb ();
         ui_in[0] = 1'b0;
         #(BIT_PERIOD);
         
-        // Data bits (LSB first)
+        // Data bits (LSB first) - 0x5A = 01011010
         ui_in[0] = 1'b0; // bit0
         #(BIT_PERIOD);
         ui_in[0] = 1'b1; // bit1
@@ -115,14 +131,16 @@ module tb ();
         ui_in[0] = 1'b1;
         #(BIT_PERIOD * 2);
       end
-    join_none
+    join
     
     // Wait for reception to complete
     wait (uo_out[2] == 1'b1);
-    if (tt_um_uart.uart_inst.rx_data == 8'h5A) 
-      $display("  Reception successful: 0x%h", tt_um_uart.uart_inst.rx_data);
+    if (received_data == 8'h5A) 
+      $display("  Reception successful: 0x%h", received_data);
     else
-      $display("  ERROR: Received 0x%h, expected 0x5A", tt_um_uart.uart_inst.rx_data);
+      $display("  ERROR: Received 0x%h, expected 0x5A", received_data);
+    
+    #100; // Wait before next test
     
     // Test 3: Parity error detection
     $display("\n[TEST 3] Parity error detection");
@@ -150,7 +168,7 @@ module tb ();
         ui_in[0] = 1'b1;
         #(BIT_PERIOD * 2);
       end
-    join_none
+    join
     
     // Wait for reception to complete
     wait (uo_out[2] == 1'b1);
@@ -158,6 +176,8 @@ module tb ();
       $display("  Parity error detected successfully");
     else
       $display("  ERROR: Parity error not detected");
+    
+    #100; // Wait before next test
     
     // Test 4: Frame error detection
     $display("\n[TEST 4] Frame error detection");
@@ -171,11 +191,23 @@ module tb ();
         ui_in[0] = 1'b0;
         #(BIT_PERIOD);
         
-        // Data bits (0x55)
-        for (integer i = 0; i < 8; i = i + 1) begin
-          ui_in[0] = ~(i % 2); // 01010101
-          #(BIT_PERIOD);
-        end
+        // Data bits (0x55 = 01010101)
+        ui_in[0] = 1'b1; // bit0
+        #(BIT_PERIOD);
+        ui_in[0] = 1'b0; // bit1
+        #(BIT_PERIOD);
+        ui_in[0] = 1'b1; // bit2
+        #(BIT_PERIOD);
+        ui_in[0] = 1'b0; // bit3
+        #(BIT_PERIOD);
+        ui_in[0] = 1'b1; // bit4
+        #(BIT_PERIOD);
+        ui_in[0] = 1'b0; // bit5
+        #(BIT_PERIOD);
+        ui_in[0] = 1'b1; // bit6
+        #(BIT_PERIOD);
+        ui_in[0] = 1'b0; // bit7
+        #(BIT_PERIOD);
         
         // Short stop bit (only half period)
         ui_in[0] = 1'b1;
@@ -184,8 +216,16 @@ module tb ();
         // Next start bit (violates stop bit timing)
         ui_in[0] = 1'b0;
         #(BIT_PERIOD);
+        
+        // Complete the next byte to avoid hanging
+        for (integer i = 0; i < 8; i = i + 1) begin
+          ui_in[0] = 1'b0;
+          #(BIT_PERIOD);
+        end
+        ui_in[0] = 1'b1;
+        #(BIT_PERIOD);
       end
-    join_none
+    join
     
     // Wait for reception to complete
     wait (uo_out[2] == 1'b1);
@@ -194,13 +234,17 @@ module tb ();
     else
       $display("  ERROR: Frame error not detected");
     
+    #100; // Wait before next test
+    
     // Test 5: Busy signal during transmission
     $display("\n[TEST 5] Busy signal check");
     uio_in = 8'hFF;
     ui_in[1] = 1'b1;
-    #10;
+    #20;
     ui_in[1] = 1'b0;
     
+    // Check if busy signal becomes active
+    #100; // Give some time for the transmission to start
     if (uo_out[1] === 1'b1)
       $display("  Busy signal active during transmission");
     else
@@ -211,21 +255,19 @@ module tb ();
     $display("  Busy signal deactivated after transmission");
     
     $display("\nAll tests completed");
-    #100;
+    #1000;
     $finish;
   end
 
-  // Monitor
+  // Simplified monitor (removed internal signal access)
   always @(posedge clk) begin
-    if ($time > 0) begin
-      $display("T=%8tns: TX=%b, Busy=%b, RX_ready=%b, Error=%b, TX_state=%0d, RX_state=%0d",
+    if ($time > 0 && rst_n) begin
+      $display("T=%8tns: TX=%b, Busy=%b, RX_ready=%b, Error=%b",
         $time, 
         uo_out[0], 
         uo_out[1], 
         uo_out[2], 
-        uo_out[3],
-        tt_um_uart.uart_inst.tx_state,
-        tt_um_uart.uart_inst.rx_state);
+        uo_out[3]);
     end
   end
 
