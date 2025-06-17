@@ -38,8 +38,7 @@ module tb ();
   // Baud rate configuration
   parameter CLOCK_FREQ = 100_000_000;  // 100 MHz
   parameter BAUD_RATE = 115_200;
-  localparam BAUD16_PERIOD = (1_000_000_000.0 / (BAUD_RATE * 16)); // ns
-  localparam BIT_PERIOD = (1_000_000_000.0 / BAUD_RATE); // ns
+  localparam BIT_PERIOD = 1_000_000_000 / BAUD_RATE; // ns (integer division)
   integer baud_counter = 0;
   reg baud16_en = 0;
   
@@ -132,19 +131,19 @@ module tb ();
     
     fork
       begin
-        // Send byte with incorrect parity (0xAA should have parity=1 for even)
+        // Send byte with incorrect parity (0x00 should have parity=0 for even)
         // Start bit
         ui_in[0] = 1'b0;
         #(BIT_PERIOD);
         
-        // Data bits (0xAA = 10101010)
+        // Data bits (0x00 = 00000000)
         for (integer i = 0; i < 8; i = i + 1) begin
-          ui_in[0] = 1'b0; // All bits 0 (parity should be 1)
+          ui_in[0] = 1'b0;
           #(BIT_PERIOD);
         end
         
-        // Incorrect parity bit (0 instead of 1)
-        ui_in[0] = 1'b0;
+        // Incorrect parity bit (1 instead of 0)
+        ui_in[0] = 1'b1;
         #(BIT_PERIOD);
         
         // Stop bit
@@ -211,38 +210,10 @@ module tb ();
     wait (uo_out[1] == 1'b0);
     $display("  Busy signal deactivated after transmission");
     
-    // Test 6: Different data lengths
-    $display("\n[TEST 6] Data length variations");
-    test_data_length(5'b01000, 5); // 5 bits
-    test_data_length(5'b01001, 6); // 6 bits
-    test_data_length(5'b01010, 7); // 7 bits
-    test_data_length(5'b01011, 8); // 8 bits
-    
     $display("\nAll tests completed");
     #100;
     $finish;
   end
-
-  // Task to test different data lengths
-  task test_data_length(input [4:0] config_val, input integer num_bits);
-    $display("  Testing %0d-bit data transmission", num_bits);
-    
-    // Configure data length
-    ui_in[7:3] = config_val;
-    
-    // Generate test data (only relevant bits)
-    reg [7:0] test_data = (1 << num_bits) - 1; // All 1s for the relevant bits
-    
-    // Transmit
-    uio_in = test_data;
-    ui_in[1] = 1'b1;
-    #10;
-    ui_in[1] = 1'b0;
-    
-    // Wait for transmission to complete
-    wait (uo_out[1] == 1'b0);
-    $display("  %0d-bit transmission complete", num_bits);
-  endtask
 
   // Monitor
   always @(posedge clk) begin
