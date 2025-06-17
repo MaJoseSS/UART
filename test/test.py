@@ -1,3 +1,6 @@
+import cocotb
+from cocotb.clock import Clock
+from cocotb.triggers import ClockCycles
 @cocotb.test()
 async def test_uart_basic_transmission(dut):
     dut._log.info("Start UART test")
